@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Chair Generator</title>
+  <style>
+    :root {
+      --bg: #f5f3ef;
+      --panel: #ffffffd9;
+      --border: #e2ddd4;
+      --text: #2b2a28;
+      --muted: #8a857c;
+      --accent: #2b2a28;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      background: #fff;
+    }
+    h1 { font-size: 15px; font-weight: 600; margin: 0 auto 0 0; }
+    label { color: var(--muted); }
+    input {
+      font: inherit;
+      width: 160px;
+      padding: 6px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg);
+      color: var(--text);
+    }
+    input:focus { outline: 2px solid #c9c2b5; outline-offset: 0; }
+    button {
+      font: inherit;
+      padding: 6px 14px;
+      border: 0;
+      border-radius: 6px;
+      background: var(--accent);
+      color: #fff;
+      cursor: pointer;
+    }
+    button:hover { opacity: 0.85; }
+    #viewport { position: relative; flex: 1; min-height: 0; }
+    #viewport canvas { display: block; }
+    details {
+      position: absolute;
+      left: 16px;
+      bottom: 16px;
+      min-width: 220px;
+      background: var(--panel);
+      backdrop-filter: blur(6px);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+    }
+    summary { cursor: pointer; font-weight: 600; }
+    dl {
+      display: grid;
+      grid-template-columns: auto auto;
+      gap: 3px 16px;
+      margin: 8px 0 0;
+    }
+    dt { color: var(--muted); }
+    dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+    #loader {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      pointer-events: none;
+    }
+    #loader[hidden] { display: none; }
+    .loader-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      min-width: 240px;
+      padding: 20px 24px;
+      background: var(--panel);
+      backdrop-filter: blur(6px);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      box-shadow: 0 8px 24px #0000000f;
+    }
+    #loader-text { font-variant-numeric: tabular-nums; color: var(--muted); }
+    .spinner {
+      width: 28px;
+      height: 28px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .bar {
+      width: 100%;
+      height: 4px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    #loader-bar {
+      width: 0;
+      height: 100%;
+      background: var(--accent);
+      transition: width 0.1s linear;
+    }
+    .swatch {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      margin-left: 4px;
+      border-radius: 3px;
+      border: 1px solid #0002;
+      vertical-align: middle;
+    }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <header>
+    <h1>Chair Generator</h1>
+    <label for="seed">Seed</label>
+    <input id="seed" type="text" spellcheck="false" autocomplete="off" title="Type a seed and press Enter" />
+    <button id="regen" type="button">Regenerate</button>
+  </header>
+  <div id="viewport">
+    <div id="loader" hidden>
+      <div class="loader-card">
+        <div class="spinner"></div>
+        <div id="loader-text">Generating chairs…</div>
+        <div class="bar"><div id="loader-bar"></div></div>
+      </div>
+    </div>
+    <details open>
+      <summary id="params-title">Parameters</summary>
+      <dl id="params"></dl>
+    </details>
+  </div>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
