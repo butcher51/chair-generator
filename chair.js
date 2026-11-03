@@ -312,7 +312,7 @@ function legAnchors(p, fp) {
   if (n === 1) return [[0, 0]];
   if (n === 2) return [[-hx, 0], [hx, 0]];
 
-  const exponent = fp.round ? 2 : 10;
+  const exponent = fp.exponent ?? (fp.round ? 2 : 10);
   const start = n % 2 === 0 ? Math.PI / n : -Math.PI / 2; // symmetric layouts
   const pts = [];
   for (let i = 0; i < n; i++) {
@@ -424,6 +424,154 @@ function buildClassic(p, mats) {
   return [buildSeat(p, mats), buildLegs(p, mats, footprint), buildBackrest(p, mats)];
 }
 
+// --- Curvy (bentwood) parts ------------------------------------------------
+
+// Rescale UVs that are in meters (Extrude/Tube) so patterns tile like on boxes.
+function normalizeUVs(geometry, size) {
+  const uv = geometry.attributes.uv;
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) / size, uv.getY(i) / size);
+  return geometry;
+}
+
+// Extrude a 2D outline (x, -z in plan) upwards into a slab with beveled edges,
+// sitting on y = 0.
+function extrudeUp(shape, height, bevel) {
+  const geo = new THREE.ExtrudeGeometry(shape, {
+    depth: Math.max(height - bevel * 2, 0.001),
+    bevelEnabled: true,
+    bevelThickness: bevel,
+    bevelSize: bevel,
+    bevelSegments: 2,
+  });
+  geo.rotateX(-Math.PI / 2);
+  geo.translate(0, bevel, 0);
+  return geo;
+}
+
+function superellipseShape(hx, hz, exponent, steps = 28) {
+  const shape = new THREE.Shape();
+  for (let i = 0; i < steps; i++) {
+    const a = (i / steps) * Math.PI * 2;
+    const c = Math.cos(a), s = Math.sin(a);
+    const x = hx * Math.sign(c) * Math.abs(c) ** (2 / exponent);
+    const y = hz * Math.sign(s) * Math.abs(s) ** (2 / exponent);
+    i === 0 ? shape.moveTo(x, y) : shape.lineTo(x, y);
+  }
+  shape.closePath();
+  return shape;
+}
+
+// Plan-view z of a back that cups the sitter: ends come forward by `bend`.
+const bendZ = (x, halfWidth, bend) => bend * (x / halfWidth) ** 2;
+
+// Vertical band, curved in plan, `height` tall (bent plywood look).
+function bentBandGeometry(width, height, thickness, bend) {
+  const bevel = Math.min(0.006, thickness * 0.3);
+  const half = width / 2 - bevel;
+  const t = thickness / 2 - bevel;
+  const steps = 10;
+  const front = [], back = [];
+  for (let i = 0; i <= steps; i++) {
+    const x = -half + (i / steps) * half * 2;
+    const z = bendZ(x, half, bend);
+    front.push(new THREE.Vector2(x, -(z + t)));
+    back.push(new THREE.Vector2(x, -(z - t)));
+  }
+  const shape = new THREE.Shape([...front, ...back.reverse()]);
+  return normalizeUVs(extrudeUp(shape, height, bevel), width);
+}
+
+function tube(points, radius, sides, mat, closed = false, segments = 10) {
+  const curve = new THREE.CatmullRomCurve3(points, closed, 'centripetal');
+  return new THREE.Mesh(new THREE.TubeGeometry(curve, segments, radius, sides, closed), mat);
+}
+
+// Radial offset of the leg at 4 heights (top -> floor), scaled by legSplay
+const LEG_PROFILES = {
+  sabre: [0, 0.1, 0.4, 1], // straight under the seat, sweeping out to the floor
+  cabriole: [0, 0.8, 0.25, 0.7], // knee bulges out, thin ankle, foot kicks out
+  bow: [0, 0.9, 0.9, 0.35], // a long outward arc
+};
+
+function buildCurvyLegs(p, mats, fp) {
+  const group = new THREE.Group();
+  const profile = LEG_PROFILES[p.legCurve];
+  const radius = p.legThickness / 2;
+  const ringT = 1 - p.ringHeight / fp.top; // curve parameter at ring height
+  const ringPoints = [];
+
+  for (const [x, z] of legAnchors(p, fp)) {
+    const out = new THREE.Vector2(x, z).normalize();
+    const points = profile.map((o, i) => {
+      const t = i / (profile.length - 1);
+      const y = radius + (fp.top - radius) * (1 - t); // tube end rests on the floor
+      return new THREE.Vector3(x + out.x * o * p.legSplay, y, z + out.y * o * p.legSplay);
+    });
+    const leg = tube(points, radius, p.legSides, mats.frame);
+    group.add(leg);
+    ringPoints.push(leg.geometry.parameters.path.getPoint(ringT));
+  }
+
+  // Bentwood ring tying the legs together
+  if (p.hasRing) group.add(tube(ringPoints, radius * 0.7, 6, mats.frame, true, 32));
+  return group;
+}
+
+function buildCurvyBack(p, mats) {
+  const w = p.backWidth, h = p.backHeight, t = p.backThickness;
+  const hx = p.seatWidth / 2, hz = p.seatDepth / 2;
+
+  // Bend the back so its ends follow the seat outline
+  const e = p.seatExponent;
+  const bend = hz - hz * Math.max(1 - (w / 2 / hx) ** e, 0) ** (1 / e);
+
+  const pivot = new THREE.Group();
+  pivot.position.set(0, p.seatHeight, -hz + t / 2 + 0.012);
+  pivot.rotation.x = -THREE.MathUtils.degToRad(p.backAngle);
+
+  const radius = Math.max(p.legThickness / 2, 0.014);
+  const z = (x) => bendZ(x, w / 2, bend);
+  const arch = (halfW, height) =>
+    [[-1, 0], [-1, 0.55], [-0.8, 0.9], [0, 1], [0.8, 0.9], [1, 0.55], [1, 0]].map(
+      ([fx, fy]) => new THREE.Vector3(fx * halfW, fy * height, z(fx * halfW))
+    );
+
+  if (p.backStyle === 'hoop') {
+    // Outer bentwood hoop + a smaller inner loop
+    pivot.add(tube(arch(w / 2, h), radius, 6, mats.frame, false, 24));
+    pivot.add(tube(arch(w * 0.28, h * 0.72), radius * 0.75, 6, mats.frame, false, 20));
+  } else if (p.backStyle === 'crest') {
+    // Two posts, a bent crest rail on top and spindles in between
+    const railH = Math.max(h * 0.22, 0.06);
+    const crest = new THREE.Mesh(bentBandGeometry(w, railH, t * 1.4, bend), mats.surface);
+    crest.position.y = h - railH;
+    pivot.add(crest);
+    for (const sx of [-1, 1]) {
+      const x = sx * (w / 2 - radius);
+      pivot.add(tube([new THREE.Vector3(x, 0, z(x)), new THREE.Vector3(x, h - railH * 0.5, z(x))], radius, 6, mats.frame, false, 1));
+    }
+    const n = p.backBarCount;
+    for (let i = 0; i < n; i++) {
+      const x = -w / 2 + radius * 2 + ((w - radius * 4) * (i + 1)) / (n + 1);
+      pivot.add(strut(new THREE.Vector3(x, 0, z(x)), new THREE.Vector3(x, h - railH * 0.5, z(x)), radius * 0.45, radius * 0.45, 5, mats.frame));
+    }
+  } else {
+    pivot.add(new THREE.Mesh(bentBandGeometry(w, h, t, bend), mats.surface));
+  }
+  return pivot;
+}
+
+function buildCurvy(p, mats) {
+  const seatBottom = p.seatHeight - p.seatThickness;
+  const bevel = Math.min(p.puff, p.seatThickness * 0.4);
+  const outline = superellipseShape(p.seatWidth / 2 - bevel, p.seatDepth / 2 - bevel, p.seatExponent);
+  const seat = new THREE.Mesh(normalizeUVs(extrudeUp(outline, p.seatThickness, bevel), p.seatWidth), mats.surface);
+  seat.position.y = seatBottom;
+
+  const footprint = { width: p.seatWidth, depth: p.seatDepth, top: seatBottom, exponent: p.seatExponent };
+  return [seat, buildCurvyLegs(p, mats, footprint), buildCurvyBack(p, mats)];
+}
+
 // Upholstered armchair: short legs -> body block -> fat seat & back cushions,
 // with optional chunky arms on both sides of the body.
 function buildCozy(p, mats) {
@@ -495,7 +643,8 @@ function mergeByMaterial(root) {
 export function buildChair(p) {
   const mats = makeMaterials(p);
   const parts = new THREE.Group();
-  parts.add(...(p.style === 'cozy' ? buildCozy(p, mats) : buildClassic(p, mats)));
+  const builders = { classic: buildClassic, curvy: buildCurvy, cozy: buildCozy };
+  parts.add(...builders[p.style](p, mats));
   return mergeByMaterial(parts);
 }
 

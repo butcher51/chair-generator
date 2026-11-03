@@ -227,9 +227,11 @@ renderer.domElement.addEventListener('pointermove', (e) => {
 function renderParams(p) {
   const cm = (m) => `${Math.round(m * 100)} cm`;
   const cozy = p.style === 'cozy';
+  const curvy = p.style === 'curvy';
   const rows = [
     ['Style', p.style],
-    ['Legs', p.legCount],
+    ['Legs', curvy ? `${p.legCount} · ${p.legCurve}` : p.legCount],
+    ...(curvy ? [['Leg ring', p.hasRing ? `at ${cm(p.ringHeight)}` : 'none']] : []),
     ['Leg thickness', cm(p.legThickness)],
     ...(cozy ? [['Leg height', cm(p.legHeight)]] : []),
     ['Leg sides', p.legSides],
@@ -242,8 +244,8 @@ function renderParams(p) {
     ['Back style', p.backStyle],
     ['Back size', `${cm(p.backWidth)} × ${cm(p.backHeight)}`],
     ['Back angle', `${p.backAngle.toFixed(1)}°`],
-    ['Pattern', p.pattern === 'stripes' ? `stripes (${p.stripeDirection})` : p.pattern],
-    ['Frame', p.frameMode],
+    ['Pattern', p.pattern === 'stripes' ? `${p.allWood ? 'planks' : 'stripes'} (${p.stripeDirection})` : p.pattern],
+    ['Frame', p.woodName ? `${p.woodName} wood${p.allWood ? ' (all)' : ''}` : p.frameMode],
   ];
   const swatches = [p.primary, p.pattern === 'solid' ? null : p.secondary, cozy ? p.bodyColor : null, p.frameColor]
     .filter(Boolean)
